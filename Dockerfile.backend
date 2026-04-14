@@ -1,0 +1,44 @@
+# Dockerfile.backend — builds PayrollEngine.Backend from upstream git,
+# using nuget.org exclusively. Works around ghcr.io private packages
+# (see https://github.com/Payroll-Engine/PayrollEngine.Backend/issues/8).
+#
+# Self-contained: no build context needed. Can be used as-is by Dokploy
+# with a trivial context (this repo root).
+
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+ARG PE_VERSION=0.10.0-beta.4
+ARG PE_BACKEND_REF=v0.10.0-beta.4
+WORKDIR /src
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/* \
+ && git clone --depth 1 --branch "${PE_BACKEND_REF}" \
+      https://github.com/Payroll-Engine/PayrollEngine.Backend.git .
+
+# Pin PayrollEngine.* PackageReferences from "*-beta.dev" → concrete nuget.org version.
+RUN find . -name "*.csproj" | xargs sed -i -E \
+    "s|(<PackageReference Include=\"PayrollEngine\.[^\"]*\" Version=\")[^\"]*\"|\1${PE_VERSION}\"|g"
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      dotnet restore "PayrollEngine.Backend.sln" --runtime linux-arm64; \
+    else \
+      dotnet restore "PayrollEngine.Backend.sln" --runtime linux-x64; \
+    fi
+
+WORKDIR /src/Backend.Server
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      dotnet publish "PayrollEngine.Backend.Server.csproj" -c Release -o /app/publish \
+        --runtime linux-arm64 --self-contained false --no-restore; \
+    else \
+      dotnet publish "PayrollEngine.Backend.Server.csproj" -c Release -o /app/publish \
+        --runtime linux-x64 --self-contained false --no-restore; \
+    fi
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /app/publish .
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+ENTRYPOINT ["dotnet", "PayrollEngine.Backend.Server.dll"]

@@ -1,80 +1,64 @@
-# PayrollEngine Deploy
+# payrollengine-deploy
 
-Deployment configuration for [PayrollEngine](https://github.com/Payroll-Engine) on [Dokploy](https://dokploy.com/).
+One-click Payroll Engine stack for Dokploy:
 
-This repo provides a self-contained `docker-compose.yml` that builds directly from the upstream GitHub repositories — no need to clone them locally.
+- **MySQL 8.0** — auto-seeded schema from `stack/init/01-Create-Model.mysql.sql`
+- **Backend** — ASP.NET Core REST API, built from [Payroll-Engine/PayrollEngine.Backend](https://github.com/Payroll-Engine/PayrollEngine.Backend) with `Dockerfile.backend` (patched for nuget.org, no GitHub Packages auth — see [upstream issue #8](https://github.com/Payroll-Engine/PayrollEngine.Backend/issues/8))
+- **regulation-import** — one-shot init job, built from [Payroll-Engine/PayrollEngine.PayrollConsole](https://github.com/Payroll-Engine/PayrollEngine.PayrollConsole), clones a regulation repo (`REGULATION_REPO_URL`), waits for backend, runs `Setup.pecmd`
 
-## Services
+Both Dockerfiles clone upstream Payroll Engine source at build time — this repo stays small (~200 KB).
 
-| Service | Description |
-|---|---|
-| `db` | SQL Server 2022 (Developer edition) |
-| `db-init` | One-shot init container: downloads and runs `ModelCreate.sql` |
-| `backend-api` | PayrollEngine Backend API (.NET) — internal only, no exposed port |
-| `webapp` | PayrollEngine WebApp (Blazor) — exposed on port 8081 |
+## Spawn on Dokploy
 
-## Quick Start (Local Docker)
+1. Create a new Docker Compose service pointing at this repo (`sourceType: git`, `composePath: ./docker-compose.yml`)
+2. Set the env vars (see [`stack/.env.example`](stack/.env.example))
+3. Deploy
+
+Or clone the existing `payroll-template` project on Dokploy and override `STACK_NAME` / `STACK_HOST` / `REGULATION_REPO_URL`.
+
+## Required env vars
+
+| Var | Example | Purpose |
+|---|---|---|
+| `STACK_NAME` | `demo-fr` | Unique per-instance, used in Traefik router names |
+| `STACK_HOST` | `demo-fr.catapulte.studio` | Public FQDN |
+| `MYSQL_ROOT_PASSWORD` | random | DB root password |
+| `PAYROLL_API_KEY` | random | API key the Backend accepts (`Api-Key` header) |
+| `REGULATION_REPO_URL` | `https://github.com/versohq/Regulation.FR.DirigeantSasu` | Git repo cloned on first deploy |
+| `REGULATION_REPO_TOKEN` | GitHub PAT | Required for private regulation repos |
+| `REGULATION_ENTRY_FILE` | _(auto)_ | Override auto-detected entry point |
+| `PE_VERSION` | `0.10.0-beta.4` | NuGet version the Dockerfiles pin |
+| `PE_BACKEND_REF` | `v0.10.0-beta.4` | Git ref cloned by `Dockerfile.backend` |
+| `PE_CONSOLE_REF` | `main` | Git ref cloned by `Dockerfile.console` |
+
+## Local test
 
 ```bash
-cp .env.example .env
-# Edit .env to set a strong DB_PASSWORD
-docker compose up --build
+cp stack/.env.example .env
+# edit .env
+docker compose up -d --build
+curl -H "Api-Key: $PAYROLL_API_KEY" http://localhost:8080/api/tenants
 ```
 
-Access the WebApp at `http://localhost:8081`.
+## Regulation entry detection
 
-## Deploy on Dokploy
+`regulation-import` looks for the entry point in this order:
 
-### 1. Create a Compose project
+1. `${REGULATION_ENTRY_FILE}` if explicitly set
+2. First `Setup.pecmd` under `<repo>/<year>/` (filters out `Data.*` subdirs to get the main setup)
+3. First `*.json` at repo root
 
-- Go to **Projects** > **Create Project**, name it `PayrollEngine`
-- Add a **Compose** service
-- Source: **GitHub**, repository: `payrollengine-deploy`
-- Compose path: `docker-compose.yml`
+`.pecmd` files are run with the PayrollConsole's command-file mode; `.json` files via `PayrollImport SourceFileName: /bulk`.
 
-### 2. Set environment variables
+## Updating the MySQL seed
 
-In the Dokploy environment settings, add:
+The schema ships in `stack/init/01-Create-Model.mysql.sql` (self-contained — tables, functions, stored procs). Regenerate from upstream:
 
-| Variable | Value |
-|---|---|
-| `DB_PASSWORD` | A strong alphanumeric password |
-| `WEBAPP_PORT` | `8081` (or your preferred port) |
-| `ASPNETCORE_ENVIRONMENT` | `Production` |
-
-### 3. Configure a domain (optional)
-
-In the webapp service settings, add your domain (e.g. `payroll.example.com`).
-Dokploy automatically configures Traefik reverse proxy and Let's Encrypt SSL.
-
-### 4. Deploy
-
-Click **Deploy**. The first build takes a few minutes as Docker clones and builds the upstream repos.
-
-## Redeployment
-
-- **Manual**: Click **Redeploy** in Dokploy to rebuild from latest upstream sources
-- **Auto-deploy**: Enable the GitHub webhook in Dokploy for automatic deploys on push
-- **Pin a version**: Change `SQL_SOURCE_URL` to point to a specific tag, then redeploy
-
-## Architecture
-
-```
-                    ┌─────────────┐
-  Browser ──────────►   webapp    │ :8081
-                    │  (Blazor)   │
-                    └──────┬──────┘
-                           │ http://backend-api:8080
-                    ┌──────▼──────┐
-                    │ backend-api │ (internal)
-                    │  (.NET API) │
-                    └──────┬──────┘
-                           │ SQL
-                    ┌──────▼──────┐
-                    │     db      │ SQL Server
-                    │  (MSSQL)    │
-                    └─────────────┘
+```bash
+curl -sL https://raw.githubusercontent.com/Payroll-Engine/PayrollEngine.Backend/v0.10.0-beta.4/Database/Create-Model.mysql.sql \
+  > stack/init/01-Create-Model.mysql.sql
 ```
 
-- The backend API is **not exposed externally** — the webapp communicates with it over the internal Docker network
-- The `db-init` container runs once at startup to initialize the database schema, then exits
+## Operational docs
+
+See [`DOKPLOY.md`](DOKPLOY.md) for Dokploy-specific notes (tRPC API, org isolation, known pitfalls).
