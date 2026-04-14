@@ -62,11 +62,24 @@ echo "PAYROLL_API_KEY=pe_$(openssl rand -hex 24)"
 
 Save.
 
-### 5. DNS
+### 5. Domains tab — set the container port to 8080
+
+⚠️ **This step is critical.** When you attach a domain to a compose service, Dokploy auto-generates Traefik labels with a **default container port of 3000**. The Payroll Engine backend listens on **8080**, so leaving the default gives you `502 Bad Gateway`.
+
+- Open the **Domains** tab of the compose service
+- **Add Domain** (or edit the one Dokploy auto-created):
+  - **Host**: same as `STACK_HOST` (e.g. `payroll-demo-fr.catapulte.studio`)
+  - **Service Name**: `backend`
+  - **Container Port**: `8080` ← **must be 8080**
+  - **Path**: `/`
+  - **HTTPS**: enabled, **Let's Encrypt**
+- Save
+
+### 6. DNS
 
 The hostname `$STACK_HOST` must resolve to the Dokploy server. A wildcard `*.catapulte.studio → <server-ip>` usually covers this — if not, add an A record.
 
-### 6. Deploy
+### 7. Deploy
 
 Click **Deploy** (top of the service page). Wait ~3 minutes:
 
@@ -77,7 +90,9 @@ Click **Deploy** (top of the service page). Wait ~3 minutes:
 
 Watch progress in the **Deployments** tab.
 
-### 7. Verify
+> If you edited the domain port *after* a first deploy, do **Stop → Deploy** (not just Deploy). Traefik labels are set at container-create time — a plain redeploy reuses the existing container with the old labels, so you need a full recreate.
+
+### 8. Verify
 
 Once the deployment status is **done**:
 
@@ -88,12 +103,12 @@ curl -H "Api-Key: pe_xxxx" https://payroll-demo-fr.catapulte.studio/api/tenants
 
 `[]` means backend up + MySQL connected + TLS valid + API key accepted. You can also open `https://$STACK_HOST/swagger` in your browser for the Swagger UI.
 
-### 8. Spawn additional instances
+### 9. Spawn additional instances
 
 Two ways:
 
-- **Repeat steps 1–6** with a different `STACK_NAME` / `STACK_HOST` — cleanest, each instance is fully independent.
-- **Duplicate Project** action in the Dokploy UI on an existing project — clones the compose service with all its env vars, then edit `STACK_NAME` / `STACK_HOST` / the two secrets and redeploy.
+- **Repeat steps 1–8** with a different `STACK_NAME` / `STACK_HOST` — cleanest, each instance is fully independent.
+- **Duplicate Project** action in the Dokploy UI on an existing project — clones the compose service with all its env vars and domain config, then edit `STACK_NAME` / `STACK_HOST` / the two secrets and redeploy.
 
 ---
 
@@ -136,6 +151,7 @@ curl -H "Api-Key: $PAYROLL_API_KEY" http://localhost:8090/api/tenants
 | Symptom | Cause | Fix |
 |---|---|---|
 | Deploy fails with "port 8080 already allocated" | You added a `ports:` directive | Make sure only `docker-compose.yml` is used on Dokploy; `docker-compose.local.yml` is for laptop only |
+| `502 Bad Gateway` on the HTTPS URL | Dokploy domain was created with the default container port (3000) | Edit the Domain in the **Domains** tab, set **Container Port** to `8080`, then **Stop → Deploy** to force container recreate |
 | `504 Gateway Timeout` on the HTTPS URL | Backend container not attached to `dokploy-network` | Check `docker-compose.yml` still has `networks: [default, dokploy-network]` on the backend service and `dokploy-network: external: true` at the bottom |
 | MySQL logs "data directory has files in it" | Corrupted volume from a previous deploy | Dokploy UI → **Advanced → Volumes → delete `mysql-data`**, redeploy |
 | Backend crashes with "Version table not found" | Init scripts didn't run (volume wasn't empty on first boot) | Same fix as above — delete the `mysql-data` volume and redeploy |
