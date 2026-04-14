@@ -1,4 +1,4 @@
-# payrollengine-deploy
+# payrollengine-dokploy
 
 Deployable [Payroll Engine](https://github.com/Payroll-Engine/PayrollEngine) stack for Dokploy:
 
@@ -30,7 +30,7 @@ In the new project:
 | Field | Value |
 |---|---|
 | Source Type | `Git` |
-| Repository URL | `https://github.com/versohq/payrollengine-deploy` |
+| Repository URL | `https://github.com/versohq/payrollengine-dokploy` |
 | Branch | `main` |
 | Build Path | `/` |
 | Compose Path | `./docker-compose.yml` |

@@ -17,7 +17,7 @@ The Dockerfile builds with `NUGET_SOURCE=nuget.org` only — no GitHub Packages 
 2. In the project, **Create Service → Compose**
 3. **General tab**:
    - Provider: **Git**
-   - Repository URL: `https://github.com/versohq/payrollengine-deploy`
+   - Repository URL: `https://github.com/versohq/payrollengine-dokploy`
    - Branch: `main`
    - Compose Path: `./docker-compose.yml`
 4. **Environment tab** — paste (replacing values):
